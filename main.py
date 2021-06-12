@@ -1,195 +1,84 @@
 import matplotlib.pyplot as plt
-
 import numpy as np
-import os
-import tensorflow as tf
-import random
-import shutil
 
-from tensorflow.keras.preprocessing import image_dataset_from_directory
+from tensorflow.python.keras.utils.layer_utils import count_params
 
+import config as cfg
 
-_URL = 'https://storage.googleapis.com/mledu-datasets/cats_and_dogs_filtered.zip'
-path_to_zip = tf.keras.utils.get_file('cats_and_dogs.zip', origin=_URL, extract=True)
-PATH = os.path.join(os.getcwd(), 'datasets/veggies_and_fruits')
-
-train_dir = os.path.join(PATH, 'train')
-validation_dir = os.path.join(PATH, 'validation')
-test_dir = os.path.join(PATH, 'test')
-
-PREP_VEGGIE = False
-
-if PREP_VEGGIE:
-    VAL_TEST_SIZE = 10
-
-    for subdir in [f.path for f in os.scandir(train_dir) if f.is_dir()]:
-        val_dest = os.path.join(validation_dir, os.path.basename(subdir))
-        test_dest = os.path.join(test_dir, os.path.basename(subdir))
-        train_src = os.path.join(train_dir, os.path.basename(subdir))
-        print(val_dest)
-        print(test_dest)
-        if not os.path.exists(val_dest):
-            os.makedirs(val_dest)
-        if not os.path.exists(test_dest):
-            os.makedirs(test_dest)
-
-        for i in range(VAL_TEST_SIZE):
-            file = random.choice(os.listdir(subdir))
-            file_path = os.path.join(train_src, file)
-            shutil.move(file_path, val_dest)
-
-            file = random.choice(os.listdir(subdir))
-            file_path = os.path.join(train_src, file)
-            shutil.move(file_path, test_dest)
-
-categories = []
-for _, dirs, _ in os.walk(train_dir):
-    for subdir in dirs:
-        categories.append(subdir)
-
-BATCH_SIZE = 20
-IMG_SIZE = (160, 160)
-
-train_dataset = image_dataset_from_directory(
-    directory=train_dir,
-    labels="inferred",
-    label_mode="categorical",
-    class_names=categories,
-    image_size=IMG_SIZE,
-    batch_size=BATCH_SIZE
-)
+from data.data_prep import prepare_data
+from helpers.result_gathering import gather_results
+from models.model import prepare_model
 
 
-categories = []
-for _, dirs, _ in os.walk(validation_dir):
-    for subdir in dirs:
-        categories.append(subdir)
-
-validation_dataset = image_dataset_from_directory(
-    directory=validation_dir,
-    label_mode="categorical",
-    labels="inferred",
-    class_names=categories,
-    image_size=IMG_SIZE,
-    batch_size=BATCH_SIZE
-)
-
-
-categories = []
-for _, dirs, _ in os.walk(test_dir):
-    for subdir in dirs:
-        categories.append(subdir)
-
-test_dataset = image_dataset_from_directory(
-    directory=test_dir,
-    labels="inferred",
-    label_mode="categorical",
-    class_names=categories,
-    image_size=IMG_SIZE,
-    batch_size=BATCH_SIZE
-)
-
-
-class_names = train_dataset.class_names
-print(class_names)
-
-PLOT_EXAMPLE = False
-if PLOT_EXAMPLE:
+def plot_test_example(model, dataset):
     plt.figure(figsize=(10, 10))
-    for images, labels in train_dataset.take(1):
+    for images, labels in dataset['test'].take(1):
         for i in range(9):
+            prediction = model.predict(np.expand_dims(images[i], axis=0))
             ax = plt.subplot(3, 3, i + 1)
             plt.imshow(images[i].numpy().astype("uint8"))
-            plt.title(class_names[labels[i]])
+            plt.title(dataset['categories'][prediction[0].argmax(axis=-1)] + " " + str(max(prediction[0])))
             plt.axis("off")
     plt.show()
 
-print('Number of train batches: %d' % tf.data.experimental.cardinality(train_dataset))
-print('Number of validation batches: %d' % tf.data.experimental.cardinality(validation_dataset))
-print('Number of test batches: %d' % tf.data.experimental.cardinality(test_dataset))
+
+def run_experiment(exp_cfg, short_result):
+    exp_dataset = prepare_data(exp_cfg.dataset)
+    exp_cfg.model['img_shape'] = exp_cfg.dataset['img_size'] + (3,)
+    exp_cfg.model['save_model_path'] = f"{exp_cfg.dataset['dataset']}_{exp_cfg.dataset['split_percentage']}_" \
+                                       f"{exp_cfg.model['model']}_{exp_cfg.model['unfreeze_size']}_" \
+                                       f"{exp_cfg.dataset['batch_size']}_{exp_cfg.model['epochs']}_" \
+                                       f"{format(exp_cfg.model['base_learning_rate'], '.12f')}"
+
+    model, history, training_time = prepare_model(exp_cfg.model, exp_dataset)
+
+    trainable_params = count_params(model.trainable_weights)
+    test_loss, test_accuracy = model.evaluate(exp_dataset['test'])
+
+    model_eval = {
+        'loss': test_loss,
+        'acc': test_accuracy,
+        'history': history,
+        'time': training_time,
+        'params': trainable_params
+    }
+    gather_results(exp_cfg.dataset, exp_cfg.model, exp_cfg.general, model_eval)
+
+    if short_result:
+        print(f"Trained params: {trainable_params}")
+        print(f"Training time: {training_time} seconds")
+        print(f"Model accuracy: {test_accuracy}")
+        print(f"Model loss: {test_loss}")
+        print(f"Dataset config: {exp_cfg.dataset}")
+        print(f"Model config: {exp_cfg.model}")
 
 
-AUTOTUNE = tf.data.AUTOTUNE
+if __name__ == '__main__':
+    if cfg.general['experiment_mode']:
+        datasets = cfg.experiment_setup['datasets']
+        models = cfg.experiment_setup['models']
+        unfreeze_sizes = cfg.experiment_setup['unfreeze_sizes']
+        epochs = cfg.experiment_setup['epochs']
+        batch_sizes = cfg.experiment_setup['batch_sizes']
+        lrs = cfg.experiment_setup['lrs']
 
-train_dataset = train_dataset.prefetch(buffer_size=AUTOTUNE)
-validation_dataset = validation_dataset.prefetch(buffer_size=AUTOTUNE)
-test_dataset = test_dataset.prefetch(buffer_size=AUTOTUNE)
+        for data in datasets:
+            cfg.dataset['dataset'] = data
+            for model in models:
+                cfg.model['model'] = model
+                for unfreeze_size in unfreeze_sizes:
+                    cfg.model['unfreeze_size'] = unfreeze_size
+                    for epoch_var in epochs:
+                        if unfreeze_size != 0 and epoch_var != 10:  # Pre-overfitting solution lock
+                            continue
+                        cfg.model['epochs'] = epoch_var
+                        for batch_size in batch_sizes:
+                            cfg.dataset['batch_size'] = batch_size
+                            for lr in lrs:
+                                cfg.model['base_learning_rate'] = lr
+                                print(f"Dataset: {data}, model: {model}, unfreeze_size: {unfreeze_size}, epoch_var: "
+                                      f"{epoch_var}, batch_size: {batch_size}, lr: {lr}")
+                                run_experiment(cfg, False)
+    else:
+        run_experiment(cfg, True)
 
-
-preprocess_input = tf.keras.applications.mobilenet_v2.preprocess_input
-
-# Create the base model from the pre-trained model MobileNet V2
-IMG_SHAPE = IMG_SIZE + (3,)
-base_model = tf.keras.applications.MobileNetV2(input_shape=IMG_SHAPE,
-                                               include_top=False,
-                                               weights='imagenet')
-
-
-image_batch, label_batch = next(iter(train_dataset))
-feature_batch = base_model(image_batch)
-print(feature_batch.shape)
-
-base_model.trainable = False
-base_model.summary()
-
-global_average_layer = tf.keras.layers.GlobalAveragePooling2D()
-feature_batch_average = global_average_layer(feature_batch)
-print(feature_batch_average.shape)
-
-prediction_layer = tf.keras.layers.Dense(len(categories), activation='softmax')
-prediction_batch = prediction_layer(feature_batch_average)
-print(prediction_batch.shape)
-
-
-inputs = tf.keras.Input(shape=(160, 160, 3))
-x = preprocess_input(inputs)
-x = base_model(x, training=False)
-x = global_average_layer(x)
-x = tf.keras.layers.Dropout(0.2)(x)
-outputs = prediction_layer(x)
-model = tf.keras.Model(inputs, outputs)
-
-
-base_learning_rate = 0.0001
-model.compile(optimizer=tf.keras.optimizers.Adam(lr=base_learning_rate),
-              loss=tf.keras.losses.CategoricalCrossentropy(),
-              metrics=['accuracy'])
-
-
-initial_epochs = 10
-
-loss0, accuracy0 = model.evaluate(validation_dataset)
-
-print("initial loss: {:.2f}".format(loss0))
-print("initial accuracy: {:.2f}".format(accuracy0))
-
-
-history = model.fit(train_dataset,
-                    epochs=initial_epochs,
-                    validation_data=validation_dataset)
-
-
-acc = history.history['accuracy']
-val_acc = history.history['val_accuracy']
-
-loss = history.history['loss']
-val_loss = history.history['val_loss']
-
-plt.figure(figsize=(8, 8))
-plt.subplot(2, 1, 1)
-plt.plot(acc, label='Training Accuracy')
-plt.plot(val_acc, label='Validation Accuracy')
-plt.legend(loc='lower right')
-plt.ylabel('Accuracy')
-plt.ylim([min(plt.ylim()),1])
-plt.title('Training and Validation Accuracy')
-
-plt.subplot(2, 1, 2)
-plt.plot(loss, label='Training Loss')
-plt.plot(val_loss, label='Validation Loss')
-plt.legend(loc='upper right')
-plt.ylabel('Cross Entropy')
-plt.ylim([0,1.0])
-plt.title('Training and Validation Loss')
-plt.xlabel('epoch')
-plt.show()
