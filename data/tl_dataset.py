@@ -64,11 +64,12 @@ class TLDataset(ABC):
             batch_size=batch_size
         )
 
-    def split_dataset(self, split_percentage):
+    def split_dataset(self, split_percentage, test_predefined=False):
         shutil.copytree(os.path.join(self._dataset_dir, 'pure'), self._train_dir)
 
         os.makedirs(self._validation_dir)
-        os.makedirs(self._test_dir)
+        if not test_predefined:
+            os.makedirs(self._test_dir)
 
         for subdir in [f.path for f in os.scandir(self._train_dir) if f.is_dir()]:
             t_src = os.path.join(self._train_dir, os.path.basename(subdir))
@@ -87,9 +88,10 @@ class TLDataset(ABC):
                 file_path = os.path.join(t_src, file)
                 shutil.move(file_path, v_dest)
 
-                file = random.choice(os.listdir(subdir))
-                file_path = os.path.join(t_src, file)
-                shutil.move(file_path, t_dest)
+                if not test_predefined:
+                    file = random.choice(os.listdir(subdir))
+                    file_path = os.path.join(t_src, file)
+                    shutil.move(file_path, t_dest)
 
     def prefetch(self):
         autotune = tf.data.AUTOTUNE

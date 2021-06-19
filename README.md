@@ -2,8 +2,6 @@
 
 ## The impact of transfer learning on deep neural network quality
 
-[[toc]]
-
 ### Setup
 ```sh
 $ python3 -m venv venv

@@ -22,5 +22,5 @@ class Fruit35(TLDataset):
             shutil.rmtree(self._train_dir, ignore_errors=True)
         if os.path.isdir(self._validation_dir):
             shutil.rmtree(self._validation_dir, ignore_errors=True)
-        if os.path.isdir(self._test_dir):
-            shutil.rmtree(self._test_dir, ignore_errors=True)
+        # if os.path.isdir(self._test_dir):
+        #     shutil.rmtree(self._test_dir, ignore_errors=True)

@@ -4,10 +4,13 @@ from data.car_parts import CarParts
 
 
 def prepare_data(config):
+    test_predefined = False
+
     if config['dataset'] == 'Fruit262':
         data = Fruit262()
     elif config['dataset'] == 'Fruit35':
         data = Fruit35()
+        test_predefined = True
     elif config['dataset'] == 'CarParts':
         data = CarParts()
     else:
@@ -16,7 +19,7 @@ def prepare_data(config):
     if config['prepare_data']:
         data.prepare_dataset()
     if config['split_dataset']:
-        data.split_dataset(config['split_percentage'])
+        data.split_dataset(config['split_percentage'], test_predefined)
 
     data.load_data(config['img_size'], config['batch_size'])
     if config['prefetch']:

@@ -15,11 +15,20 @@ def prepare_model(model_cfg, datasets):
         base_model = tf.keras.applications.EfficientNetB6(input_shape=model_cfg['img_shape'],
                                                           include_top=False,
                                                           weights=model_cfg['weights'])
+        model_cfg['EN'] = True
     elif model_cfg['model'] == 'EfficientNetB7':
         model_cfg['preprocess_input'] = tf.keras.applications.efficientnet.preprocess_input
         base_model = tf.keras.applications.EfficientNetB7(input_shape=model_cfg['img_shape'],
                                                           include_top=False,
                                                           weights=model_cfg['weights'])
+        model_cfg['EN'] = True
+    elif model_cfg['model'] == 'VGG19':
+        model_cfg['preprocess_input'] = tf.keras.applications.vgg19.preprocess_input
+        base_model = tf.keras.applications.VGG19(input_shape=model_cfg['img_shape'],
+                                                 include_top=False,
+                                                 pooling='avg',
+                                                 weights=model_cfg['weights'])
+        model_cfg['EN'] = False
     else:
         raise Exception("Unknown model selected")
 
@@ -81,7 +90,8 @@ class Model:
         inputs = tf.keras.Input(shape=(160, 160, 3))
         x = preprocess_input(inputs)
         x = self.__base_model(x, training=False)
-        x = global_average_layer(x)
+        if self.__cfg['EN']:
+            x = global_average_layer(x)
         x = tf.keras.layers.Dropout(0.2)(x)
         outputs = prediction_layer(x)
         model = tf.keras.Model(inputs, outputs)
@@ -107,6 +117,7 @@ class Model:
         # self.__base_model.summary()
 
     def train_model(self):
+        self.__model.summary()
         return self.__model.fit(self.__datasets['train'],
                                 epochs=self.__cfg['epochs'],
                                 validation_data=self.__datasets['validation'])
